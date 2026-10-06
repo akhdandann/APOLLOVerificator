@@ -45,53 +45,99 @@ def normalisasi_tanggal(tanggal) -> str:
         return ""
 
 
+def validasi_tanggal_polis(tanggal_mulai: str, tanggal_selesai: str):
+    """
+    Memvalidasi kewajaran tanggal polis.
+    Mengembalikan (valid: bool, pesan: str, flag: bool, alasan_flag: str).
+    """
+    hari_ini = datetime.now()
+
+    if not tanggal_mulai:
+        return False, "Tanggal Mulai Polis kosong.", False, ""
+    if not tanggal_selesai:
+        return False, "Tanggal Selesai Polis kosong.", False, ""
+
+    try:
+        tgl_mulai = datetime.strptime(tanggal_mulai, "%Y/%m/%d")
+    except Exception:
+        return False, f"Format Tanggal Mulai tidak valid: '{tanggal_mulai}'.", False, ""
+
+    try:
+        tgl_selesai = datetime.strptime(tanggal_selesai, "%Y/%m/%d")
+    except Exception:
+        return False, f"Format Tanggal Selesai tidak valid: '{tanggal_selesai}'.", False, ""
+
+    if tgl_selesai <= tgl_mulai:
+        return (
+            False,
+            f"Tanggal Selesai ({tanggal_selesai}) harus setelah Tanggal Mulai ({tanggal_mulai}).",
+            False,
+            "",
+        )
+
+    batas_depan = hari_ini.replace(year=hari_ini.year + 1)
+    if tgl_mulai > batas_depan:
+        return (
+            False,
+            f"Tanggal Mulai ({tanggal_mulai}) terlalu jauh di masa depan (maksimal 1 tahun).",
+            False,
+            "",
+        )
+
+    if tgl_mulai.year < 1950 or tgl_selesai.year < 1950:
+        return False, "Tanggal polis tidak boleh sebelum tahun 1950.", False, ""
+
+    selisih_hari = (tgl_selesai - tgl_mulai).days
+    flag = False
+    alasan_flag = []
+
+    if selisih_hari > 30 * 365:
+        flag = True
+        alasan_flag.append(
+            f"Masa pertanggungan sangat panjang: {selisih_hari} hari "
+            f"(± {selisih_hari // 365} tahun). Perlu inspeksi."
+        )
+
+    if selisih_hari < 30:
+        flag = True
+        alasan_flag.append(
+            f"Masa pertanggungan sangat pendek: {selisih_hari} hari. Perlu inspeksi."
+        )
+
+    if tgl_selesai.year > hari_ini.year + 50:
+        flag = True
+        alasan_flag.append(
+            f"Tanggal Selesai ({tanggal_selesai}) sangat jauh di masa depan. Perlu inspeksi."
+        )
+
+    pesan = "Tanggal polis valid." if not flag else "Tanggal polis valid, tetapi perlu inspeksi."
+    return True, pesan, flag, " | ".join(alasan_flag)
+
+
 def bersihkan_nik(nik) -> str:
-    """
-    Membersihkan NIK dari:
-    - Notasi ilmiah (mis. '1,23457E+15')
-    - Akhiran .0 dari float
-    - Spasi, titik, koma, dan karakter non-digit
-    """
     if nik is None:
         return ""
-
     s = str(nik).strip()
-
-    # Deteksi notasi ilmiah
     if re.match(r"^\d+[,.]?\d*[eE][+-]?\d+$", s):
         try:
             s = f"{float(s.replace(',', '.')):.0f}"
         except Exception:
             pass
-
-    # Hapus .0 di akhir
     if s.endswith(".0"):
         s = s[:-2]
-
-    # Hapus semua karakter non-digit
     s = re.sub(r"\D", "", s)
-
     return s
 
 
 def normalisasi_nama(nama: str) -> str:
     if not nama:
         return ""
-
-    # 1. Normalisasi Unicode
     nama = unicodedata.normalize("NFKC", str(nama))
-
-    # 2. Hapus karakter zero-width
     nama = re.sub(r"[\u200b-\u200f\u2028-\u202f\ufeff]", "", nama)
-
-    # 3. Normalisasi spasi
     nama = re.sub(r"\s+", " ", nama).strip()
     nama = nama.lower()
-
-    # 4. Hapus tanda baca awal
     nama = re.sub(r"[,;]", " ", nama)
 
-    # 5. Pola gelar — WAJIB ada titik untuk s., m., b.
     pola_gelar = [
         r"\bs\.\s*[a-z]{1,3}\.?\b",
         r"\bm\.\s*[a-z]{1,3}\.?\b",
@@ -114,17 +160,13 @@ def normalisasi_nama(nama: str) -> str:
         r"\btb\.?\b",
     ]
 
-    # 6. Loop sampai tidak ada perubahan
     sebelumnya = None
     while sebelumnya != nama:
         sebelumnya = nama
         for pola in pola_gelar:
             nama = re.sub(pola, " ", nama)
 
-    # 7. Hapus tanda baca sisa
     nama = re.sub(r"[.,]", " ", nama)
-
-    # 8. Normalisasi spasi terakhir
     nama = re.sub(r"\s+", " ", nama).strip()
 
     token = nama.split()
@@ -132,18 +174,14 @@ def normalisasi_nama(nama: str) -> str:
 
 
 def perbaiki_format_nama(nama: str) -> str:
-    """Memperbaiki format nama untuk penyimpanan."""
     if not nama:
         return ""
-
     nama_bersih = normalisasi_nama(nama)
-
     singkatan_badan_usaha = {
         "PT", "CV", "TB", "UD", "PD", "KOPERASI", "YAYASAN",
         "FIRMA", "FA", "PTA", "PERSERO", "PERUM", "BUMN",
         "BUMD", "BUMDES", "PTNV", "PMA", "PMDN",
     }
-
     token = nama_bersih.split()
     hasil = []
     for t in token:
@@ -152,7 +190,6 @@ def perbaiki_format_nama(nama: str) -> str:
             hasil.append(t_bersih.upper())
         else:
             hasil.append(t_bersih.capitalize())
-
     return " ".join(hasil)
 
 
@@ -160,7 +197,6 @@ def perbaiki_format_nama(nama: str) -> str:
 # VALIDASI STRUKTUR NIK (TANPA DUKCAPIL)
 # ============================================================
 def muat_kode_wilayah():
-    """Memuat referensi kode wilayah dari Excel."""
     path = "database/kode_wilayah.xlsx"
     if not os.path.exists(path):
         return None
@@ -176,32 +212,24 @@ kode_wilayah = muat_kode_wilayah()
 
 
 def validasi_struktur_nik(nik: str, tanggal_lahir: str = "", jenis_kelamin: str = ""):
-    """
-    Memvalidasi struktur NIK secara mandiri tanpa akses Dukcapil.
-    Mengembalikan (valid: bool, pesan: str).
-    """
     if not nik:
         return False, "NIK kosong."
 
     nik = bersihkan_nik(nik)
 
-    # 1. Format: 16 digit angka
     if not re.match(r"^\d{16}$", nik):
         return False, f"NIK harus terdiri atas 16 digit angka. Ditemukan: '{nik}' ({len(nik)} digit)."
 
-    # 2. Validasi kode wilayah (6 digit pertama)
     kode_kab = nik[0:4]
     if kode_wilayah is not None:
         baris = kode_wilayah[kode_wilayah["kode"] == kode_kab]
         if baris.empty:
             return False, f"Kode wilayah '{kode_kab}' tidak terdaftar pada referensi Kemendagri."
 
-    # 3. Parsing tanggal lahir dari NIK
     tgl_nik = int(nik[6:8])
     bln_nik = int(nik[8:10])
     thn_nik = int(nik[10:12])
 
-    # 4. Deteksi jenis kelamin dari NIK
     if tgl_nik > 40:
         tgl_asli = tgl_nik - 40
         jk_nik = "P"
@@ -209,13 +237,11 @@ def validasi_struktur_nik(nik: str, tanggal_lahir: str = "", jenis_kelamin: str 
         tgl_asli = tgl_nik
         jk_nik = "L"
 
-    # 5. Validasi tanggal
     if not (1 <= tgl_asli <= 31):
         return False, f"Tanggal lahir pada NIK tidak valid: {tgl_asli}."
     if not (1 <= bln_nik <= 12):
         return False, f"Bulan lahir pada NIK tidak valid: {bln_nik}."
 
-    # 6. Bandingkan dengan tanggal lahir yang dilaporkan (jika ada)
     if tanggal_lahir:
         try:
             bagian = tanggal_lahir.split("/")
@@ -231,7 +257,6 @@ def validasi_struktur_nik(nik: str, tanggal_lahir: str = "", jenis_kelamin: str 
         except Exception:
             return False, "Format tanggal lahir tidak dikenali."
 
-    # 7. Bandingkan jenis kelamin (jika ada)
     if jenis_kelamin:
         jk_input = str(jenis_kelamin).strip()[0].upper()
         if jk_input != jk_nik:
@@ -249,50 +274,39 @@ def validasi_struktur_nik(nik: str, tanggal_lahir: str = "", jenis_kelamin: str 
 def cek_duplikat_nik(nomor_identitas: str, nama: str):
     if not nomor_identitas or not nama:
         return False, ""
-
     nama_norm = normalisasi_nama(nama)
     nomor_bersih = bersihkan_nik(nomor_identitas)
-
     baris = db_nik[db_nik["nik"] == nomor_bersih]
     if baris.empty:
         return False, ""
-
     nama_db = baris.iloc[0].get("nama", "")
     nama_db_norm = normalisasi_nama(nama_db)
-
     if nama_db_norm == nama_norm:
         return False, ""
-
     return True, f"NIK sudah terdaftar dengan nama '{nama_db}' di database kependudukan."
 
 
 def cek_duplikat_nik_di_database_polis(nomor_identitas: str, nama: str):
     if not nomor_identitas or not nama:
         return False, ""
-
     path = "database/data_valid.xlsx"
     if not os.path.exists(path):
         return False, ""
-
     try:
         df = pd.read_excel(path, dtype=str)
     except Exception:
         return False, ""
-
     if "nomor_identitas" not in df.columns or "nama_pemegang" not in df.columns:
         return False, ""
-
     nomor_bersih = bersihkan_nik(nomor_identitas)
     baris = df[df["nomor_identitas"].apply(bersihkan_nik) == nomor_bersih]
     if baris.empty:
         return False, ""
-
     nama_norm = normalisasi_nama(nama)
     for _, row in baris.iterrows():
         nama_lama = row.get("nama_pemegang", "")
         if normalisasi_nama(nama_lama) == nama_norm:
             return False, ""
-
     nama_lama_pertama = baris.iloc[0].get("nama_pemegang", "")
     return True, f"NIK sudah terdaftar dengan nama '{nama_lama_pertama}' pada database polis."
 
@@ -329,7 +343,6 @@ def muat_database():
     if "tanggal_lahir" in db_nik.columns:
         db_nik["tanggal_lahir"] = db_nik["tanggal_lahir"].apply(normalisasi_tanggal)
 
-    # Bersihkan kolom kunci
     for df, kolom in [
         (db_nik, "nik"),
         (db_npwp, "npwp"),
@@ -349,10 +362,6 @@ db_nik, db_npwp, db_paspor, db_kitas = muat_database()
 # FUNGSI BACA BERKAS (MULTI-ENCODING)
 # ============================================================
 def baca_berkas_unggahan(berkas):
-    """
-    Membaca berkas CSV atau Excel dengan deteksi encoding otomatis.
-    Mengembalikan (df, encoding_terpakai) atau (None, pesan_error).
-    """
     if berkas.name.lower().endswith(".csv"):
         encodings = ["utf-8", "utf-8-sig", "windows-1252", "iso-8859-1", "latin1"]
         for enc in encodings:
@@ -402,7 +411,6 @@ def cek_database(jenis_identitas: str, nomor: str):
         baris = db_kitas[db_kitas["kitas"] == nomor_bersih]
     else:
         return False, None
-
     if baris.empty:
         return False, None
     return True, baris.iloc[0].to_dict()
@@ -410,7 +418,6 @@ def cek_database(jenis_identitas: str, nomor: str):
 
 def cek_konsistensi(jenis_identitas: str, data_db: dict, data_input: dict):
     kesalahan = []
-
     if jenis_identitas == "NIK":
         nama_db = data_db.get("nama", "").strip()
         nama_input = data_input["nama"].strip()
@@ -440,7 +447,6 @@ def cek_konsistensi(jenis_identitas: str, data_db: dict, data_input: dict):
                 "alasan": "Lokasi pemegang polis tidak sesuai dengan data pada database kependudukan.",
                 "bukti": f"Lokasi pada database: '{lok_db}'",
             })
-
     elif jenis_identitas == "NPWP":
         nama_db = data_db.get("nama", "").strip()
         nama_input = data_input["nama"].strip()
@@ -449,7 +455,6 @@ def cek_konsistensi(jenis_identitas: str, data_db: dict, data_input: dict):
                 "alasan": "Nama pemegang polis tidak sesuai dengan data pada database perpajakan.",
                 "bukti": f"Nama pada database: '{nama_db}'",
             })
-
     elif jenis_identitas == "PASPOR":
         nama_db = data_db.get("nama", "").strip()
         nama_input = data_input["nama"].strip()
@@ -458,7 +463,6 @@ def cek_konsistensi(jenis_identitas: str, data_db: dict, data_input: dict):
                 "alasan": "Nama pemegang polis tidak sesuai dengan data pada database keimigrasian.",
                 "bukti": f"Nama pada database: '{nama_db}'",
             })
-
     elif jenis_identitas == "KITAS":
         nama_db = data_db.get("nama", "").strip()
         nama_input = data_input["nama"].strip()
@@ -467,7 +471,6 @@ def cek_konsistensi(jenis_identitas: str, data_db: dict, data_input: dict):
                 "alasan": "Nama pemegang polis tidak sesuai dengan data pada database keimigrasian.",
                 "bukti": f"Nama pada database: '{nama_db}'",
             })
-
     return kesalahan
 
 
@@ -476,13 +479,11 @@ def simpan_ke_database_valid(record: dict):
     path = "database/data_valid.xlsx"
     kolom_banding = [k for k in record.keys() if k != "timestamp"]
     df_baru = pd.DataFrame([record])
-
     if os.path.exists(path):
         df_lama = pd.read_excel(path, dtype=str)
         for kolom in kolom_banding:
             if kolom not in df_lama.columns:
                 df_lama[kolom] = ""
-
         for _, baris_lama in df_lama.iterrows():
             sama = True
             for kolom in kolom_banding:
@@ -493,11 +494,9 @@ def simpan_ke_database_valid(record: dict):
                     break
             if sama:
                 return False
-
         df_gabung = pd.concat([df_lama, df_baru], ignore_index=True)
     else:
         df_gabung = df_baru
-
     df_gabung.to_excel(path, index=False)
     return True
 
@@ -517,10 +516,8 @@ with st.sidebar:
     st.metric("Total NPWP", len(db_npwp))
     st.metric("Total Paspor", len(db_paspor))
     st.metric("Total KITAS", len(db_kitas))
-
     if kode_wilayah is not None:
         st.metric("Total Kode Wilayah", len(kode_wilayah))
-
     with st.expander("Lihat Database NIK"):
         st.dataframe(db_nik, use_container_width=True)
     with st.expander("Lihat Database NPWP"):
@@ -531,10 +528,7 @@ with st.sidebar:
         st.dataframe(db_kitas, use_container_width=True)
 
 
-tab_bulk, tab_database = st.tabs([
-    "Bulk Entry",
-    "Database",
-])
+tab_bulk, tab_database = st.tabs(["Bulk Entry", "Database"])
 
 
 # ============================================================
@@ -557,7 +551,7 @@ with tab_bulk:
             "tanggal_selesai": "2025/01/31",
             "tanggal_lahir": "1985/02/18",
             "jenis_kelamin": "L - Laki-Laki",
-            "lokasi": "1101 - KAB. ACEH SELATAN, PROVINSI ACEH",
+            "lokasi": "3201 - KAB. BOGOR, PROVINSI JAWA BARAT",
             "lini_usaha": "1027 - Anuitas Dana Pensiun",
             "cara_bayar": "101 - Reguler - Bulanan",
             "jumlah_premi": "2000",
@@ -565,78 +559,6 @@ with tab_bulk:
             "cadangan_premi": "5000",
             "capybmp": "3450",
             "jumlah_tertanggung": "5",
-        },
-        {
-            "nomor_polis": "POL-2026-0002",
-            "nama_pemegang": "Dendi Indonesia",
-            "jenis_identitas": "NPWP",
-            "nomor_identitas": "19771025",
-            "tanggal_mulai": "2025/01/05",
-            "tanggal_selesai": "2025/01/31",
-            "tanggal_lahir": "1988/06/10",
-            "jenis_kelamin": "L - Laki-Laki",
-            "lokasi": "1205 - KAB. LANGKAT, PROVINSI SUMATERA UTARA",
-            "lini_usaha": "1022 - Dwiguna",
-            "cara_bayar": "101 - Reguler - Bulanan",
-            "jumlah_premi": "3400",
-            "uang_pertanggungan": "2100",
-            "cadangan_premi": "6560",
-            "capybmp": "4680",
-            "jumlah_tertanggung": "1",
-        },
-        {
-            "nomor_polis": "POL-2026-0003",
-            "nama_pemegang": "Siti Aminah M. Kom",
-            "jenis_identitas": "NIK",
-            "nomor_identitas": "3201985205900004",
-            "tanggal_mulai": "2025/02/01",
-            "tanggal_selesai": "2025/02/28",
-            "tanggal_lahir": "1990/05/12",
-            "jenis_kelamin": "P - Perempuan",
-            "lokasi": "3171 - KOTA JAKARTA SELATAN, PROVINSI DKI JAKARTA",
-            "lini_usaha": "1027 - Anuitas Dana Pensiun",
-            "cara_bayar": "102 - Reguler - Semesteran",
-            "jumlah_premi": "1500",
-            "uang_pertanggungan": "1000",
-            "cadangan_premi": "3000",
-            "capybmp": "2000",
-            "jumlah_tertanggung": "1",
-        },
-        {
-            "nomor_polis": "POL-2026-0004",
-            "nama_pemegang": "Andi Wijaya",
-            "jenis_identitas": "NIK",
-            "nomor_identitas": "3201980811910005",
-            "tanggal_mulai": "2025/02/01",
-            "tanggal_selesai": "2025/02/28",
-            "tanggal_lahir": "1991/11/08",
-            "jenis_kelamin": "L - Laki-Laki",
-            "lokasi": "3578 - KOTA SURABAYA, PROVINSI JAWA TIMUR",
-            "lini_usaha": "1022 - Dwiguna",
-            "cara_bayar": "103 - Reguler - Kuartalan",
-            "jumlah_premi": "2500",
-            "uang_pertanggungan": "1800",
-            "cadangan_premi": "4500",
-            "capybmp": "3200",
-            "jumlah_tertanggung": "1",
-        },
-        {
-            "nomor_polis": "POL-2026-0005",
-            "nama_pemegang": "John Doe M. Eng",
-            "jenis_identitas": "PASPOR",
-            "nomor_identitas": "A1234567",
-            "tanggal_mulai": "2025/03/01",
-            "tanggal_selesai": "2025/03/31",
-            "tanggal_lahir": "1980/04/15",
-            "jenis_kelamin": "L - Laki-Laki",
-            "lokasi": "3171 - KOTA JAKARTA SELATAN, PROVINSI DKI JAKARTA",
-            "lini_usaha": "1027 - Anuitas Dana Pensiun",
-            "cara_bayar": "104 - Reguler - Tahunan",
-            "jumlah_premi": "10000",
-            "uang_pertanggungan": "5000",
-            "cadangan_premi": "12000",
-            "capybmp": "8000",
-            "jumlah_tertanggung": "1",
         },
     ])
 
@@ -650,7 +572,7 @@ with tab_bulk:
     )
 
     st.caption(
-        "Template berisi 5 baris contoh yang mencakup jenis identitas NIK, NPWP, Paspor, dan KITAS. "
+        "Template berisi contoh baris yang mencakup jenis identitas NIK. "
         "Silakan hapus baris contoh sebelum mengisi data sebenarnya."
     )
 
@@ -663,11 +585,9 @@ with tab_bulk:
 
     if berkas is not None:
         df_unggah, info = baca_berkas_unggahan(berkas)
-
         if df_unggah is None:
             st.error(info)
             st.stop()
-
         if info != "xlsx":
             st.info(f"Berkas CSV dibaca dengan encoding: **{info}**")
 
@@ -724,6 +644,18 @@ with tab_bulk:
                 if not lokasi:
                     kesalahan_alasan.append("Lokasi kosong.")
                     kesalahan_bukti.append("Field lokasi tidak diisi.")
+
+                # Validasi tanggal polis
+                if tanggal_mulai and tanggal_selesai:
+                    tanggal_valid, pesan_tanggal, flag_tanggal, alasan_flag = validasi_tanggal_polis(
+                        tanggal_mulai, tanggal_selesai
+                    )
+                    if not tanggal_valid:
+                        kesalahan_alasan.append("Tanggal polis tidak valid.")
+                        kesalahan_bukti.append(pesan_tanggal)
+                else:
+                    flag_tanggal = False
+                    alasan_flag = ""
 
                 if nomor_identitas and jenis_identitas:
                     format_valid, pesan_format = validasi_format(jenis_identitas, nomor_identitas)
@@ -786,6 +718,8 @@ with tab_bulk:
                         "cadangan_premi": str(baris.get("cadangan_premi", "")).strip(),
                         "capybmp": str(baris.get("capybmp", "")).strip(),
                         "jumlah_tertanggung": str(baris.get("jumlah_tertanggung", "")).strip(),
+                        "flag_inspeksi": "PERLU INSPEKSI" if flag_tanggal else "OK",
+                        "alasan_flag": alasan_flag if flag_tanggal else "",
                     })
                 else:
                     hasil_tidak_valid.append({
@@ -831,17 +765,38 @@ with tab_bulk:
                     key="bulk_unduh_tidak_valid",
                 )
             else:
-                st.success("Seluruh baris data valid")
-                st.success("Seluruh data yang menggunakan NIK sudah terverifikasi kesesuaian datanya")
+                st.success("Seluruh baris data valid.")
 
             if hasil_valid:
                 st.markdown("### Data Valid")
-                st.caption(
-                    f"Terdapat {len(hasil_valid)} baris data valid. "
-                    "Klik tombol di bawah untuk menyimpan ke database."
-                )
                 df_valid = pd.DataFrame(hasil_valid)
+
+                jumlah_flag = len(df_valid[df_valid["flag_inspeksi"] == "PERLU INSPEKSI"])
+                if jumlah_flag > 0:
+                    st.warning(
+                        f"Terdapat {jumlah_flag} baris data valid yang **perlu inspeksi** "
+                        f"(tanggal polis tidak wajar)."
+                    )
+
                 st.dataframe(df_valid, use_container_width=True)
+
+                df_flag = df_valid[df_valid["flag_inspeksi"] == "PERLU INSPEKSI"]
+                if not df_flag.empty:
+                    st.markdown("#### Data yang Perlu Inspeksi")
+                    st.dataframe(
+                        df_flag[["nomor_polis", "nama_pemegang", "tanggal_mulai",
+                                 "tanggal_selesai", "alasan_flag"]],
+                        use_container_width=True,
+                    )
+
+                    csv_flag = df_flag.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="Unduh Data Perlu Inspeksi (CSV)",
+                        data=csv_flag,
+                        file_name="data_perlu_inspeksi.csv",
+                        mime="text/csv",
+                        key="bulk_unduh_flag",
+                    )
 
                 if st.button(
                     label="Simpan Data Valid ke Database",
@@ -850,7 +805,6 @@ with tab_bulk:
                 ):
                     jumlah_disimpan = 0
                     jumlah_duplikat = 0
-
                     for record in hasil_valid:
                         record["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         disimpan = simpan_ke_database_valid(record)
