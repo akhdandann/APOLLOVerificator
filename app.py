@@ -7,19 +7,51 @@ import unicodedata
 from datetime import datetime
 
 
-# ============================================================
 # KONFIGURASI HALAMAN
-# ============================================================
 st.set_page_config(
     page_title="Mock-Up Validasi Data Polis",
     page_icon=None,
     layout="wide",
 )
 
+PATH_VALID = "database/data_valid.xlsx"
+PATH_TIDAK_VALID = "database/data_tidak_valid.xlsx"
 
-# ============================================================
+st.markdown(
+    """
+    <style>
+    div[class*="st-key-terima_"] button {
+        background-color: #2e7d32;
+        border-color: #2e7d32;
+        color: #ffffff;
+    }
+    div[class*="st-key-terima_"] button:hover,
+    div[class*="st-key-terima_"] button:focus:not(:active) {
+        background-color: #1b5e20;
+        border-color: #1b5e20;
+        color: #ffffff;
+    }
+    div[class*="st-key-terima_"] button p { color: #ffffff; }
+
+    div[class*="st-key-tolak_"] button {
+        background-color: #c62828;
+        border-color: #c62828;
+        color: #ffffff;
+    }
+    div[class*="st-key-tolak_"] button:hover,
+    div[class*="st-key-tolak_"] button:focus:not(:active) {
+        background-color: #8e0000;
+        border-color: #8e0000;
+        color: #ffffff;
+    }
+    div[class*="st-key-tolak_"] button p { color: #ffffff; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
 # FUNGSI BANTU
-# ============================================================
 def normalisasi_tanggal(tanggal) -> str:
     """Mengubah format tanggal apa pun menjadi YYYY/MM/DD."""
     if tanggal is None:
@@ -48,31 +80,32 @@ def normalisasi_tanggal(tanggal) -> str:
 def validasi_tanggal_polis(tanggal_mulai: str, tanggal_selesai: str):
     """
     Memvalidasi kewajaran tanggal polis.
-    Mengembalikan (valid: bool, pesan: str, flag: bool, alasan_flag: str).
+    Mengembalikan (valid: bool, pesan: str, flag: bool, daftar_flag: list[dict]).
+    Setiap item daftar_flag berisi: atribut, alasan, bukti.
     """
     hari_ini = datetime.now()
 
     if not tanggal_mulai:
-        return False, "Tanggal Mulai Polis kosong.", False, ""
+        return False, "Tanggal Mulai Polis kosong.", False, []
     if not tanggal_selesai:
-        return False, "Tanggal Selesai Polis kosong.", False, ""
+        return False, "Tanggal Selesai Polis kosong.", False, []
 
     try:
         tgl_mulai = datetime.strptime(tanggal_mulai, "%Y/%m/%d")
     except Exception:
-        return False, f"Format Tanggal Mulai tidak valid: '{tanggal_mulai}'.", False, ""
+        return False, f"Format Tanggal Mulai tidak valid: '{tanggal_mulai}'.", False, []
 
     try:
         tgl_selesai = datetime.strptime(tanggal_selesai, "%Y/%m/%d")
     except Exception:
-        return False, f"Format Tanggal Selesai tidak valid: '{tanggal_selesai}'.", False, ""
+        return False, f"Format Tanggal Selesai tidak valid: '{tanggal_selesai}'.", False, []
 
     if tgl_selesai <= tgl_mulai:
         return (
             False,
             f"Tanggal Selesai ({tanggal_selesai}) harus setelah Tanggal Mulai ({tanggal_mulai}).",
             False,
-            "",
+            [],
         )
 
     batas_depan = hari_ini.replace(year=hari_ini.year + 1)
@@ -81,37 +114,43 @@ def validasi_tanggal_polis(tanggal_mulai: str, tanggal_selesai: str):
             False,
             f"Tanggal Mulai ({tanggal_mulai}) terlalu jauh di masa depan (maksimal 1 tahun).",
             False,
-            "",
+            [],
         )
 
     if tgl_mulai.year < 1950 or tgl_selesai.year < 1950:
-        return False, "Tanggal polis tidak boleh sebelum tahun 1950.", False, ""
+        return False, "Tanggal polis tidak boleh sebelum tahun 1950.", False, []
 
     selisih_hari = (tgl_selesai - tgl_mulai).days
-    flag = False
-    alasan_flag = []
+    bukti_dasar = (
+        f"Tanggal Mulai: {tanggal_mulai} | Tanggal Selesai: {tanggal_selesai} | "
+        f"Masa pertanggungan: {selisih_hari} hari"
+    )
+    daftar_flag = []
 
     if selisih_hari > 30 * 365:
-        flag = True
-        alasan_flag.append(
-            f"Masa pertanggungan sangat panjang: {selisih_hari} hari "
-            f"(± {selisih_hari // 365} tahun). Perlu inspeksi."
-        )
+        daftar_flag.append({
+            "atribut": "Tanggal Polis",
+            "alasan": "Masa pertanggungan sangat panjang (lebih dari 30 tahun).",
+            "bukti": f"{bukti_dasar} (± {selisih_hari // 365} tahun)",
+        })
 
     if selisih_hari < 30:
-        flag = True
-        alasan_flag.append(
-            f"Masa pertanggungan sangat pendek: {selisih_hari} hari. Perlu inspeksi."
-        )
+        daftar_flag.append({
+            "atribut": "Tanggal Polis",
+            "alasan": "Masa pertanggungan sangat pendek (kurang dari 30 hari).",
+            "bukti": bukti_dasar,
+        })
 
     if tgl_selesai.year > hari_ini.year + 50:
-        flag = True
-        alasan_flag.append(
-            f"Tanggal Selesai ({tanggal_selesai}) sangat jauh di masa depan. Perlu inspeksi."
-        )
+        daftar_flag.append({
+            "atribut": "Tanggal Polis",
+            "alasan": "Tanggal Selesai sangat jauh di masa depan.",
+            "bukti": f"Tanggal Selesai: {tanggal_selesai}",
+        })
 
+    flag = len(daftar_flag) > 0
     pesan = "Tanggal polis valid." if not flag else "Tanggal polis valid, tetapi perlu inspeksi."
-    return True, pesan, flag, " | ".join(alasan_flag)
+    return True, pesan, flag, daftar_flag
 
 
 def bersihkan_nik(nik) -> str:
@@ -128,7 +167,8 @@ def bersihkan_nik(nik) -> str:
     s = re.sub(r"\D", "", s)
     return s
 
-
+# normalisasi pola gelar Indonesia dan luar negeri
+# Contoh namanya Akhdan Arifuddin M. Eng -> Akhdan Arifuddin
 def normalisasi_nama(nama: str) -> str:
     if not nama:
         return ""
@@ -193,9 +233,51 @@ def perbaiki_format_nama(nama: str) -> str:
     return " ".join(hasil)
 
 
-# ============================================================
+# CEK GELAR HAJI (H. / Hj.)
+TOKEN_HAJI = {"h", "hj", "haji", "hajjah"}
+
+
+def punya_gelar_haji(nama) -> bool:
+    """True jika nama memuat gelar Haji (H., Hj., Haji, Hajjah) sebagai awalan/gelar."""
+    if not nama:
+        return False
+    s = unicodedata.normalize("NFKC", str(nama)).lower()
+    s = re.sub(r"[,;]", " ", s)
+    token = [t.strip(".") for t in s.split()]
+    # token terakhir dikecualikan biar nama seperti "Haji" ga salah baca
+    return any(t in TOKEN_HAJI for t in token[:-1])
+
+
+def cek_gelar_haji(nama_db: str, nama_input: str):
+    """
+    Mengembalikan (status, alasan, bukti). status: "OK" | "BERSYARAT" | "TOLAK".
+    Bukti selalu menampilkan nama LENGKAP beserta gelar (tidak dinormalisasi).
+    Hanya dievaluasi jika nama dasar (tanpa gelar) sudah sama.
+
+    Contoh riil:
+    - DB "H. Hendra" & LJK "H. Hendra" -> BERSYARAT
+    - DB "Hendra"    & LJK "H. Hendra" -> TOLAK
+    - DB "H. Hendra" & LJK "Hendra"    -> BERSYARAT (ubah ke "TOLAK" jika ingin ditolak)
+    - DB "Hendra"    & LJK "Hendra"    -> OK
+    """
+    if normalisasi_nama(nama_db) != normalisasi_nama(nama_input):
+        return "OK", "", ""  # perbedaan nama dasar sudah ditangani cek_konsistensi
+
+    haji_db = punya_gelar_haji(nama_db)
+    haji_input = punya_gelar_haji(nama_input)
+    bukti = f"Nama pada database: '{nama_db}' | Nama pada data polis: '{nama_input}'"
+
+    if haji_db and haji_input:
+        return "BERSYARAT", "Gelar Haji tercantum pada database dan data polis.", bukti
+    if (not haji_db) and haji_input:
+        return "TOLAK", "Gelar Haji pada data polis tidak sesuai dengan database.", bukti
+    if haji_db and (not haji_input):
+        return "BERSYARAT", "Gelar Haji tercantum pada database tetapi tidak pada data polis.", bukti
+    return "OK", "", ""
+
+
 # VALIDASI STRUKTUR NIK (TANPA DUKCAPIL)
-# ============================================================
+"""Butuh database yang berisikan kode wilayah di Indonesia, contoh 1904 kode wilayah Bangka Belitung."""
 def muat_kode_wilayah():
     path = "database/kode_wilayah.xlsx"
     if not os.path.exists(path):
@@ -268,9 +350,7 @@ def validasi_struktur_nik(nik: str, tanggal_lahir: str = "", jenis_kelamin: str 
     return True, "Struktur NIK valid."
 
 
-# ============================================================
 # DUPLIKAT NIK
-# ============================================================
 def cek_duplikat_nik(nomor_identitas: str, nama: str):
     if not nomor_identitas or not nama:
         return False, ""
@@ -289,7 +369,7 @@ def cek_duplikat_nik(nomor_identitas: str, nama: str):
 def cek_duplikat_nik_di_database_polis(nomor_identitas: str, nama: str):
     if not nomor_identitas or not nama:
         return False, ""
-    path = "database/data_valid.xlsx"
+    path = PATH_VALID
     if not os.path.exists(path):
         return False, ""
     try:
@@ -311,9 +391,8 @@ def cek_duplikat_nik_di_database_polis(nomor_identitas: str, nama: str):
     return True, f"NIK sudah terdaftar dengan nama '{nama_lama_pertama}' pada database polis."
 
 
-# ============================================================
-# PEMUATAN DATABASE DUMMY
-# ============================================================
+# LOAD DATABASE DUMMY
+# Pastiin udah punya semua database yang ada di bawah ini
 def muat_database():
     try:
         db_nik = pd.read_excel("database/db_nik.xlsx", dtype=str)
@@ -358,9 +437,7 @@ def muat_database():
 db_nik, db_npwp, db_paspor, db_kitas = muat_database()
 
 
-# ============================================================
 # FUNGSI BACA BERKAS (MULTI-ENCODING)
-# ============================================================
 def baca_berkas_unggahan(berkas):
     if berkas.name.lower().endswith(".csv"):
         encodings = ["utf-8", "utf-8-sig", "windows-1252", "iso-8859-1", "latin1"]
@@ -381,9 +458,7 @@ def baca_berkas_unggahan(berkas):
             return None, f"Gagal membaca Excel: {type(e).__name__} — {e}"
 
 
-# ============================================================
 # FUNGSI VALIDASI FORMAT
-# ============================================================
 def validasi_format(jenis_identitas: str, nomor: str):
     pola = {
         "NIK":    (r"^\d{15,16}$", "NIK harus terdiri atas 15 atau 16 digit angka."),
@@ -474,36 +549,239 @@ def cek_konsistensi(jenis_identitas: str, data_db: dict, data_input: dict):
     return kesalahan
 
 
-def simpan_ke_database_valid(record: dict):
+# PENYIMPANAN KE DATABASE (VALID & TIDAK VALID)
+def _norm_nilai(v) -> str:
+    """Menyeragamkan nilai untuk perbandingan (None/NaN -> '', spasi dirapikan)."""
+    if v is None:
+        return ""
+    return " ".join(str(v).split())
+
+
+def _simpan_unik(path: str, record: dict, abaikan=()) -> bool:
+    """
+    Menambahkan record ke Excel hanya jika belum ada data yang sama.
+    Seluruh atribut dibandingkan, kecuali 'timestamp' (dan kolom pada 'abaikan').
+    Mengembalikan True jika tersimpan, False jika duplikat (TIDAK disimpan).
+    """
     os.makedirs("database", exist_ok=True)
-    path = "database/data_valid.xlsx"
-    kolom_banding = [k for k in record.keys() if k != "timestamp"]
+    kolom_banding = [k for k in record.keys() if k != "timestamp" and k not in abaikan]
     df_baru = pd.DataFrame([record])
+
     if os.path.exists(path):
-        df_lama = pd.read_excel(path, dtype=str)
+        df_lama = pd.read_excel(path, dtype=str).fillna("")
         for kolom in kolom_banding:
             if kolom not in df_lama.columns:
                 df_lama[kolom] = ""
+
+        nilai_baru = {k: _norm_nilai(record.get(k, "")) for k in kolom_banding}
         for _, baris_lama in df_lama.iterrows():
-            sama = True
-            for kolom in kolom_banding:
-                nilai_lama = str(baris_lama.get(kolom, "")).strip()
-                nilai_baru = str(record.get(kolom, "")).strip()
-                if nilai_lama != nilai_baru:
-                    sama = False
-                    break
-            if sama:
-                return False
+            if all(_norm_nilai(baris_lama.get(k, "")) == nilai_baru[k] for k in kolom_banding):
+                return False  # kalau ada data yang sama, gaakan disimpan
+
         df_gabung = pd.concat([df_lama, df_baru], ignore_index=True)
     else:
         df_gabung = df_baru
+
     df_gabung.to_excel(path, index=False)
     return True
 
 
-# ============================================================
+def simpan_ke_database_valid(record: dict) -> bool:
+    return _simpan_unik(PATH_VALID, record)
+
+
+def simpan_ke_database_tidak_valid(record: dict) -> bool:
+    # arti 'baris' itu hanya posisi baris pada berkas unggahan, bukan bagian dari data polis,
+    # sehingga  gaikut dibandingkan.
+    return _simpan_unik(PATH_TIDAK_VALID, record, abaikan=("baris",))
+
+
+# CALLBACK TOMBOL (TERIMA / TOLAK / SIMPAN)
+def _tambah_pesan(jenis: str, teks: str):
+    st.session_state.setdefault("pesan_aksi", []).append((jenis, teks))
+
+
+def _pesan_duplikat(daftar_polis: list, nama_db: str) -> str:
+    tampil = ", ".join(daftar_polis[:10])
+    if len(daftar_polis) > 10:
+        tampil += f", dan {len(daftar_polis) - 10} lainnya"
+    return (
+        f"{len(daftar_polis)} data tidak dicatat karena data yang sama "
+        f"sudah ada di {nama_db}: {tampil}."
+    )
+
+
+def _pesan_gagal_simpan(e: Exception) -> str:
+    if isinstance(e, PermissionError):
+        return (
+            "Gagal menyimpan: berkas database sedang dibuka di aplikasi lain. "
+            "Tutup berkas Excel lalu coba lagi."
+        )
+    return f"Gagal menyimpan: {type(e).__name__} — {e}"
+
+
+def _proses_item_flag(item: dict, keputusan: str) -> bool:
+    """
+    Terima -> database valid. Tolak -> database tidak valid.
+    Mengembalikan True jika baris baru tersimpan, False jika duplikat (tidak disimpan).
+    Melempar exception jika gagal menyimpan.
+    """
+    waktu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ringkas_alasan = " | ".join(f["alasan"] for f in item["flags"])
+
+    if keputusan == "terima":
+        record = dict(item["record"])
+        record["flag_inspeksi"] = "DITERIMA SETELAH INSPEKSI"
+        record["alasan_flag"] = ringkas_alasan
+        record["timestamp"] = waktu
+        return simpan_ke_database_valid(record)
+
+    record = {
+        "baris": item["baris"],
+        "nomor_polis": item["nomor_polis"],
+        "nama_pemegang": item["nama_asli"],
+        "nomor_identitas": item["record"]["nomor_identitas"],
+        "alasan": ringkas_alasan,
+        "bukti": " | ".join(f["bukti"] for f in item["flags"]),
+        "status": "DITOLAK SETELAH INSPEKSI",
+        "timestamp": waktu,
+    }
+    return simpan_ke_database_tidak_valid(record)
+
+
+def proses_keputusan_flag(uid: str, keputusan: str):
+    """Keputusan untuk salah satu baris yang perlu inspeksi."""
+    daftar = st.session_state.get("hasil_flag", [])
+    item = next((x for x in daftar if x["uid"] == uid), None)
+    if item is None:
+        return
+
+    try:
+        disimpan = _proses_item_flag(item, keputusan)
+    except Exception as e:
+        _tambah_pesan("error", _pesan_gagal_simpan(e))
+        return  # item tidak dihapus agar bisa dicoba lagi
+
+    nama_db = "database valid" if keputusan == "terima" else "database tidak valid"
+    kata = "diterima" if keputusan == "terima" else "ditolak"
+    if disimpan:
+        _tambah_pesan(
+            "success" if keputusan == "terima" else "info",
+            f"Polis {item['nomor_polis']} {kata} dan disimpan ke {nama_db}.",
+        )
+    else:
+        _tambah_pesan("warning", _pesan_duplikat([item["nomor_polis"]], nama_db))
+
+    st.session_state["hasil_flag"] = [x for x in daftar if x["uid"] != uid]
+
+
+def proses_semua_flag(keputusan: str):
+    """Terima Semua / Tolak Semua untuk seluruh baris yang perlu inspeksi."""
+    daftar = st.session_state.get("hasil_flag", [])
+    if not daftar:
+        return
+
+    jumlah_disimpan = 0
+    polis_duplikat = []
+    sisa = []
+    error = None
+
+    for idx, item in enumerate(daftar):
+        try:
+            disimpan = _proses_item_flag(item, keputusan)
+        except Exception as e:
+            error = e
+            sisa = daftar[idx:]  # sisanya tetap menunggu keputusan
+            break
+        if disimpan:
+            jumlah_disimpan += 1
+        else:
+            polis_duplikat.append(item["nomor_polis"])
+
+    nama_db = "database valid" if keputusan == "terima" else "database tidak valid"
+    kata = "diterima" if keputusan == "terima" else "ditolak"
+
+    if jumlah_disimpan > 0:
+        _tambah_pesan(
+            "success" if keputusan == "terima" else "info",
+            f"{jumlah_disimpan} data {kata} dan disimpan ke {nama_db}.",
+        )
+    if polis_duplikat:
+        _tambah_pesan("warning", _pesan_duplikat(polis_duplikat, nama_db))
+    if error is not None:
+        _tambah_pesan("error", _pesan_gagal_simpan(error))
+
+    st.session_state["hasil_flag"] = sisa
+
+
+def simpan_semua_valid():
+    """Menyimpan seluruh data valid (tidak ber-flag) ke database valid."""
+    daftar = st.session_state.get("hasil_valid", [])
+    jumlah_disimpan = 0
+    polis_duplikat = []
+    try:
+        for record in daftar:
+            record = dict(record)
+            record["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if simpan_ke_database_valid(record):
+                jumlah_disimpan += 1
+            else:
+                polis_duplikat.append(record["nomor_polis"])
+    except Exception as e:
+        _tambah_pesan("error", _pesan_gagal_simpan(e))
+        return
+
+    if jumlah_disimpan > 0:
+        _tambah_pesan(
+            "success",
+            f"{jumlah_disimpan} baris data valid berhasil disimpan ke {PATH_VALID}.",
+        )
+    if polis_duplikat:
+        _tambah_pesan("warning", _pesan_duplikat(polis_duplikat, "database valid"))
+    st.session_state["hasil_valid"] = []
+
+
+def simpan_otomatis_tidak_valid(daftar: list):
+    """Data yang sejak awal tidak valid otomatis dikirim ke database tidak valid."""
+    if not daftar:
+        return
+
+    jumlah_disimpan = 0
+    polis_duplikat = []
+    try:
+        for item in daftar:
+            record = {
+                "baris": item["baris"],
+                "nomor_polis": item["nomor_polis"],
+                "nama_pemegang": item["nama_pemegang"],
+                "nomor_identitas": item["nomor_identitas"],
+                "alasan": item["alasan"],
+                "bukti": item["bukti"],
+                "status": "TIDAK VALID (OTOMATIS)",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            if simpan_ke_database_tidak_valid(record):
+                jumlah_disimpan += 1
+            else:
+                polis_duplikat.append(item["nomor_polis"] or f"baris {item['baris']}")
+    except Exception as e:
+        _tambah_pesan(
+            "error",
+            "Data tidak valid gagal dikirim otomatis ke database tidak valid. "
+            + _pesan_gagal_simpan(e),
+        )
+        return
+
+    if jumlah_disimpan > 0:
+        _tambah_pesan(
+            "info",
+            f"{jumlah_disimpan} data tidak valid otomatis dikirim ke {PATH_TIDAK_VALID}.",
+        )
+    if polis_duplikat:
+        _tambah_pesan("warning", _pesan_duplikat(polis_duplikat, "database tidak valid"))
+
+
 # BAGIAN ANTARMUKA
-# ============================================================
 st.title("Mock-Up Validasi dan Verifikasi Data Polis")
 st.caption(
     "Aplikasi simulasi untuk validasi dan verifikasi data polis asuransi konvensional. "
@@ -528,12 +806,12 @@ with st.sidebar:
         st.dataframe(db_kitas, use_container_width=True)
 
 
-tab_bulk, tab_database = st.tabs(["Bulk Entry", "Database"])
+tab_bulk, tab_database, tab_database_tidak_valid = st.tabs(
+    ["Bulk Entry", "Database Valid", "Database Tidak Valid"]
+)
 
 
-# ============================================================
 # TAB 1: BULK ENTRY
-# ============================================================
 with tab_bulk:
     st.subheader("Unggah Data Polis Secara Massal")
     st.caption(
@@ -592,6 +870,7 @@ with tab_bulk:
             st.info(f"Berkas CSV dibaca dengan encoding: **{info}**")
 
         st.success(f"Berkas berhasil dimuat: {len(df_unggah)} baris data.")
+        st.success(f"Berkas yang menggunakan NIK sudah berhasil diverifikasi.")
         st.dataframe(df_unggah.head(10), use_container_width=True)
 
         if st.button(
@@ -599,8 +878,9 @@ with tab_bulk:
             use_container_width=True,
             key="bulk_tombol_validasi",
         ):
-            hasil_valid = []
-            hasil_tidak_valid = []
+            hasil_valid = []        # valid dan bersih (tanpa flag)
+            hasil_flag = []         # valid tetapi perlu inspeksi
+            hasil_tidak_valid = []  # tidak valid
             progres = st.progress(0, text="Memulai validasi massal.")
             total = len(df_unggah)
 
@@ -612,6 +892,7 @@ with tab_bulk:
 
                 kesalahan_alasan = []
                 kesalahan_bukti = []
+                daftar_flag = []  # setiap item: atribut, alasan, bukti
 
                 nomor_polis = str(baris.get("nomor_polis", "")).strip()
                 nama = str(baris.get("nama_pemegang", "")).strip()
@@ -647,15 +928,14 @@ with tab_bulk:
 
                 # Validasi tanggal polis
                 if tanggal_mulai and tanggal_selesai:
-                    tanggal_valid, pesan_tanggal, flag_tanggal, alasan_flag = validasi_tanggal_polis(
+                    tanggal_valid, pesan_tanggal, flag_tanggal, flag_tanggal_list = validasi_tanggal_polis(
                         tanggal_mulai, tanggal_selesai
                     )
                     if not tanggal_valid:
                         kesalahan_alasan.append("Tanggal polis tidak valid.")
                         kesalahan_bukti.append(pesan_tanggal)
-                else:
-                    flag_tanggal = False
-                    alasan_flag = ""
+                    else:
+                        daftar_flag.extend(flag_tanggal_list)
 
                 if nomor_identitas and jenis_identitas:
                     format_valid, pesan_format = validasi_format(jenis_identitas, nomor_identitas)
@@ -694,6 +974,18 @@ with tab_bulk:
                         kesalahan_alasan.append(k["alasan"])
                         kesalahan_bukti.append(k["bukti"])
 
+                    # Cek gelar Haji (H. / Hj.)
+                    status_haji, alasan_haji, bukti_haji = cek_gelar_haji(data_db.get("nama", ""), nama)
+                    if status_haji == "TOLAK":
+                        kesalahan_alasan.append(alasan_haji)
+                        kesalahan_bukti.append(bukti_haji)
+                    elif status_haji == "BERSYARAT":
+                        daftar_flag.append({
+                            "atribut": "Nama",
+                            "alasan": alasan_haji,
+                            "bukti": bukti_haji,
+                        })
+
                     if jenis_identitas == "NIK" and nomor_identitas:
                         is_duplikat, keterangan = cek_duplikat_nik_di_database_polis(nomor_identitas, nama)
                         if is_duplikat:
@@ -701,7 +993,7 @@ with tab_bulk:
                             kesalahan_bukti.append(keterangan)
 
                 if not kesalahan_alasan:
-                    hasil_valid.append({
+                    record = {
                         "nomor_polis": nomor_polis,
                         "nama_pemegang": perbaiki_format_nama(nama),
                         "jenis_identitas": jenis_identitas,
@@ -718,12 +1010,24 @@ with tab_bulk:
                         "cadangan_premi": str(baris.get("cadangan_premi", "")).strip(),
                         "capybmp": str(baris.get("capybmp", "")).strip(),
                         "jumlah_tertanggung": str(baris.get("jumlah_tertanggung", "")).strip(),
-                        "flag_inspeksi": "PERLU INSPEKSI" if flag_tanggal else "OK",
-                        "alasan_flag": alasan_flag if flag_tanggal else "",
-                    })
+                        "flag_inspeksi": "OK",
+                        "alasan_flag": "",
+                    }
+                    if daftar_flag:
+                        hasil_flag.append({
+                            "uid": f"{i}-{nomor_polis}",
+                            "baris": i + 2,
+                            "nomor_polis": nomor_polis,
+                            "nama_asli": nama,
+                            "flags": daftar_flag,
+                            "record": record,
+                        })
+                    else:
+                        hasil_valid.append(record)
                 else:
                     hasil_tidak_valid.append({
                         "baris": i + 2,
+                        "nomor_polis": nomor_polis,
                         "nama_pemegang": nama,
                         "nomor_identitas": nomor_identitas,
                         "alasan": " | ".join(kesalahan_alasan),
@@ -733,24 +1037,57 @@ with tab_bulk:
             progres.empty()
 
             st.session_state["hasil_valid"] = hasil_valid
+            st.session_state["hasil_flag"] = hasil_flag
             st.session_state["hasil_tidak_valid"] = hasil_tidak_valid
-            st.session_state["total_baris"] = total
+            st.session_state["ringkasan"] = {
+                "total": total,
+                "valid": len(hasil_valid),
+                "flag": len(hasil_flag),
+                "tidak_valid": len(hasil_tidak_valid),
+            }
+            st.session_state["pesan_aksi"] = []
+            simpan_otomatis_tidak_valid(hasil_tidak_valid)
 
-        if "hasil_valid" in st.session_state and "hasil_tidak_valid" in st.session_state:
-            hasil_valid = st.session_state["hasil_valid"]
-            hasil_tidak_valid = st.session_state["hasil_tidak_valid"]
-            total = st.session_state["total_baris"]
+        # TAMPILAN HASIL
+        # Urutan: 1) Data Valid  2) Data Tidak Valid  3) Data Perlu Inspeksi
+        if "ringkasan" in st.session_state:
+            hasil_valid = st.session_state.get("hasil_valid", [])
+            hasil_flag = st.session_state.get("hasil_flag", [])
+            hasil_tidak_valid = st.session_state.get("hasil_tidak_valid", [])
+            ringkasan = st.session_state["ringkasan"]
+
+            # Pesan hasil klik tombol (dibuat oleh callback)
+            for jenis_pesan, teks_pesan in st.session_state.pop("pesan_aksi", []):
+                getattr(st, jenis_pesan)(teks_pesan)
 
             st.markdown("### Ringkasan Hasil Validasi")
-            kolom_a, kolom_b, kolom_c = st.columns(3)
-            kolom_a.metric("Total Baris", total)
-            kolom_b.metric("Baris Valid", len(hasil_valid))
-            kolom_c.metric("Baris Tidak Valid", len(hasil_tidak_valid))
+            kolom_a, kolom_b, kolom_c, kolom_d = st.columns(4)
+            kolom_a.metric("Total Baris", ringkasan["total"])
+            kolom_b.metric("Valid", ringkasan["valid"])
+            kolom_c.metric("Tidak Valid", ringkasan["tidak_valid"])
+            kolom_d.metric("Perlu Inspeksi", ringkasan["flag"])
 
+            # SECTION 1: DATA VALID 
+            if hasil_valid:
+                st.markdown("### Data Valid")
+                st.dataframe(pd.DataFrame(hasil_valid), use_container_width=True)
+
+                st.button(
+                    label="Simpan Data Valid ke Database",
+                    use_container_width=True,
+                    key="bulk_simpan_valid",
+                    on_click=simpan_semua_valid,
+                )
+            elif ringkasan["valid"] > 0:
+                st.markdown("### Data Valid")
+                st.success("Seluruh data valid sudah dikirim ke database.")
+
+            #SECTION 2: DATA TIDAK VALID
             if hasil_tidak_valid:
                 st.markdown("### Data Tidak Valid")
                 st.caption(
                     "Tabel berikut menampilkan data yang tidak valid beserta alasan dan bukti kesalahannya. "
+                    "Data ini otomatis dikirim ke database tidak valid. "
                     "Silakan perbaiki data pada berkas Excel, lalu unggah ulang."
                 )
                 df_tidak_valid = pd.DataFrame(hasil_tidak_valid)
@@ -764,74 +1101,85 @@ with tab_bulk:
                     mime="text/csv",
                     key="bulk_unduh_tidak_valid",
                 )
-            else:
-                st.success("Seluruh baris data valid.")
+            elif ringkasan["valid"] + ringkasan["flag"] == ringkasan["total"]:
+                st.success("Seluruh baris data lolos validasi (tidak ada data tidak valid).")
 
-            if hasil_valid:
-                st.markdown("### Data Valid")
-                df_valid = pd.DataFrame(hasil_valid)
+            #SECTION 3: DATA PERLU INSPEKSI
+            if hasil_flag:
+                st.markdown("### Data Perlu Inspeksi")
+                st.warning(f"{len(hasil_flag)} data menunggu keputusan Anda.")
+                st.caption(
+                    "Tinjau alasan dan bukti di bawah. **Terima** akan memasukkan data ke database valid, "
+                    "**Tolak** akan memasukkan data ke database tidak valid."
+                )
 
-                jumlah_flag = len(df_valid[df_valid["flag_inspeksi"] == "PERLU INSPEKSI"])
-                if jumlah_flag > 0:
-                    st.warning(
-                        f"Terdapat {jumlah_flag} baris data valid yang **perlu inspeksi** "
-                        f"(tanggal polis tidak wajar)."
-                    )
+                for item in hasil_flag:
+                    with st.container(border=True):
+                        kolom_info, kolom_terima, kolom_tolak = st.columns([6, 1, 1])
+                        with kolom_info:
+                            st.markdown(f"**Baris {item['baris']} — Polis {item['nomor_polis']}**")
+                            for f in item["flags"]:
+                                st.markdown(
+                                    f"- **Alasan:** {f['alasan']}  \n"
+                                    f"  **Bukti:** {f['bukti']}"
+                                )
+                        kolom_terima.button(
+                            "Terima",
+                            key=f"terima_{item['uid']}",
+                            use_container_width=True,
+                            on_click=proses_keputusan_flag,
+                            args=(item["uid"], "terima"),
+                        )
+                        kolom_tolak.button(
+                            "Tolak",
+                            key=f"tolak_{item['uid']}",
+                            use_container_width=True,
+                            on_click=proses_keputusan_flag,
+                            args=(item["uid"], "tolak"),
+                        )
 
-                st.dataframe(df_valid, use_container_width=True)
-
-                df_flag = df_valid[df_valid["flag_inspeksi"] == "PERLU INSPEKSI"]
-                if not df_flag.empty:
-                    st.markdown("#### Data yang Perlu Inspeksi")
-                    st.dataframe(
-                        df_flag[["nomor_polis", "nama_pemegang", "tanggal_mulai",
-                                 "tanggal_selesai", "alasan_flag"]],
-                        use_container_width=True,
-                    )
-
-                    csv_flag = df_flag.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        label="Unduh Data Perlu Inspeksi (CSV)",
-                        data=csv_flag,
-                        file_name="data_perlu_inspeksi.csv",
-                        mime="text/csv",
-                        key="bulk_unduh_flag",
-                    )
-
-                if st.button(
-                    label="Simpan Data Valid ke Database",
+                # Tombol massal di bagian bawah section
+                st.markdown("---")
+                kolom_semua_terima, kolom_semua_tolak = st.columns(2)
+                kolom_semua_terima.button(
+                    "Terima Semua",
+                    key="terima_semua",
                     use_container_width=True,
-                    key="bulk_simpan_valid",
-                ):
-                    jumlah_disimpan = 0
-                    jumlah_duplikat = 0
-                    for record in hasil_valid:
-                        record["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        disimpan = simpan_ke_database_valid(record)
-                        if disimpan:
-                            jumlah_disimpan += 1
-                        else:
-                            jumlah_duplikat += 1
+                    on_click=proses_semua_flag,
+                    args=("terima",),
+                )
+                kolom_semua_tolak.button(
+                    "Tolak Semua",
+                    key="tolak_semua",
+                    use_container_width=True,
+                    on_click=proses_semua_flag,
+                    args=("tolak",),
+                )
 
-                    if jumlah_disimpan > 0:
-                        st.success(
-                            f"{jumlah_disimpan} baris data valid berhasil disimpan ke database/data_valid.xlsx."
-                        )
-                    if jumlah_duplikat > 0:
-                        st.warning(
-                            f"{jumlah_duplikat} baris data dilewati karena sudah ada di database (duplikat)."
-                        )
-                    if jumlah_disimpan == 0 and jumlah_duplikat > 0:
-                        st.info("Seluruh data sudah ada di database. Tidak ada data baru yang disimpan.")
+                df_flag_unduh = pd.DataFrame([
+                    {
+                        "baris": item["baris"],
+                        "nomor_polis": item["nomor_polis"],
+                        "atribut": f["atribut"],
+                        "alasan": f["alasan"],
+                        "bukti": f["bukti"],
+                    }
+                    for item in hasil_flag
+                    for f in item["flags"]
+                ])
+                st.download_button(
+                    label="Unduh Data Perlu Inspeksi (CSV)",
+                    data=df_flag_unduh.to_csv(index=False).encode("utf-8"),
+                    file_name="data_perlu_inspeksi.csv",
+                    mime="text/csv",
+                    key="bulk_unduh_flag",
+                )
+            elif ringkasan["flag"] > 0:
+                st.markdown("### Data Perlu Inspeksi")
+                st.success("Seluruh data perlu inspeksi sudah diputuskan.")
 
-                    del st.session_state["hasil_valid"]
-                    del st.session_state["hasil_tidak_valid"]
-                    del st.session_state["total_baris"]
 
-
-# ============================================================
-# TAB 2: DATABASE
-# ============================================================
+# TAB 2: DATABASE VALID
 with tab_database:
     st.subheader("Database Data Polis Valid")
     st.caption(
@@ -839,18 +1187,41 @@ with tab_database:
         "dan tersimpan dalam database."
     )
 
-    path = "database/data_valid.xlsx"
-    if os.path.exists(path):
-        df_valid = pd.read_excel(path, dtype=str)
-        st.metric("Total Data Valid", len(df_valid))
-        st.dataframe(df_valid, use_container_width=True)
+    if os.path.exists(PATH_VALID):
+        df_db_valid = pd.read_excel(PATH_VALID, dtype=str)
+        st.metric("Total Data Valid", len(df_db_valid))
+        st.dataframe(df_db_valid, use_container_width=True)
 
         st.download_button(
-            label="Unduh Database (CSV)",
-            data=df_valid.to_csv(index=False).encode("utf-8"),
+            label="Unduh Database Valid (CSV)",
+            data=df_db_valid.to_csv(index=False).encode("utf-8"),
             file_name="database_data_valid.csv",
             mime="text/csv",
             key="database_unduh_csv",
         )
     else:
         st.info("Belum terdapat data valid yang tersimpan pada database.")
+
+
+# TAB 3: DATABASE TIDAK VALID
+with tab_database_tidak_valid:
+    st.subheader("Database Data Polis Tidak Valid")
+    st.caption(
+        "Tab ini menampilkan data polis yang ditolak setelah inspeksi "
+        "dan tersimpan dalam database tidak valid."
+    )
+
+    if os.path.exists(PATH_TIDAK_VALID):
+        df_db_tidak_valid = pd.read_excel(PATH_TIDAK_VALID, dtype=str)
+        st.metric("Total Data Tidak Valid", len(df_db_tidak_valid))
+        st.dataframe(df_db_tidak_valid, use_container_width=True)
+
+        st.download_button(
+            label="Unduh Database Tidak Valid (CSV)",
+            data=df_db_tidak_valid.to_csv(index=False).encode("utf-8"),
+            file_name="database_data_tidak_valid.csv",
+            mime="text/csv",
+            key="database_tidak_valid_unduh_csv",
+        )
+    else:
+        st.info("Belum terdapat data tidak valid yang tersimpan pada database.")
